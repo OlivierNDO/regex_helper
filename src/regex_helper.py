@@ -1,74 +1,16 @@
 ### Configuration
 ###############################################################################
 # Import packages
+from multiprocessing import Pool, cpu_count
 import re
+import time
+from typing import Iterable, List
 
 
-### Define Classes & Functions
+### Patterns
+
 ###############################################################################
-def dollar_amount_pattern():
-    """
-    Generate a regex pattern to match various dollar amount formats.
-
-    Returns
-    -------
-    re.Pattern
-        A compiled regex pattern for matching dollar amounts.
-
-    Example Usage
-    -------------
-    >>> pattern = dollar_amount_pattern()
-    >>> bool(pattern.match("$1,000.50"))
-    True
-    """
-    
-    # The pattern is broken down as follows:
-    # (?:USD\s*)?: Matches optional "USD" with possible spaces.
-    # [-(]?: Matches optional negative sign or opening parenthesis for negative amounts.
-    # \$: Matches the dollar sign.
-    # \d+(?:,\d{3})*: Matches numbers with commas (e.g., 1,000 or 20,000).
-    # |\d*: Matches numbers without commas (e.g., 2500).
-    # (\.\d{1,2})?: Matches optional decimal values (e.g., .50 or .05).
-    # (?:k|m|mm|b)?: Matches optional 'k' for thousand, 'm' or 'mm' for million, 'b' for billion.
-    # [)]?: Matches optional closing parenthesis for negative amounts.
-    # (?:\s*USD)?: Matches optional "USD" with possible spaces after the amount.
-    pattern = r"(?:USD\s*)?[-(]?\$(?:\d+(?:,\d{3})*(?:\.\d{1,2})?|\d*(?:\.\d{1,2})?)(?:k|m|mm|b)?[)]?(?:\s*USD)?"   
-    return re.compile(pattern, re.IGNORECASE)
-
-
-def phone_number_pattern():
-    """
-    Generate a regex pattern to match various phone number formats.
-
-    Returns
-    -------
-    re.Pattern
-        A compiled regex pattern for matching phone numbers.
-
-    Example Usage
-    -------------
-    >>> pattern = phone_number_pattern()
-    >>> bool(pattern.match("+1 (555) 555-5555"))
-    True
-    """
-    
-    # The pattern is broken down as follows:
-    # ^: Matches the start of the string.
-    # (?:...): Non-capturing group.
-    # \+?: Matches an optional '+' at the start.
-    # \d{0,4}: Matches up to 4 digits (for country code).
-    # \s?: Matches an optional space.
-    # \(?: Matches an optional opening parenthesis.
-    # \d{1,4}: Matches 1 to 4 digits (for area code).
-    # \)?: Matches an optional closing parenthesis.
-    # [-.\s]?: Matches an optional hyphen, dot, or space.
-    # \d{1,4}: Matches 1 to 4 digits.
-    # (?:[-.\s]\d{1,4}){1,3}: Matches groups of up to 4 digits, separated by hyphens, dots, or spaces, repeated 1 to 3 times.
-    # $: Matches the end of the string.
-    pattern = r"(?:\+?\d{0,4}\s?)?\(?(?:\d{1,4})\)?[-.\s]?\d{1,4}(?:[-.\s]\d{1,4}){1,3}"
-    return re.compile(pattern)
-
-
+# TO DO: make this constant, move patterns.py module. create unit test.
 def email_regex_pattern(username_chars=None, domain_chars=None, tld_length=None):
     """
     Generate an email regex pattern based on provided constraints.
@@ -111,6 +53,8 @@ def email_regex_pattern(username_chars=None, domain_chars=None, tld_length=None)
     return compiled_pattern
 
 
+### Pattern Usage Functions
+###############################################################################
 def get_words_before_pattern(text : str, pattern : re.Pattern, n : int, include_match=True):
     """
     Get the N words before a regex pattern match.
@@ -202,7 +146,7 @@ def extract_between_patterns(text : str,
     return matches
 
 
-def is_full_match(text : str, pattern : re.Pattern):
+def is_match(text : str, pattern : re.Pattern):
     """Determine whether a string in it's entirety matches a regex pattern"""
     return pattern.match(text) is not None
 
@@ -212,7 +156,7 @@ def count_matches(text : str, pattern : re.Pattern):
     return sum(1 for _ in re.finditer(pattern, text))
 
 
-def get_all_matches(text : str, pattern : re.Pattern):
+def get_matches(text : str, pattern : re.Pattern):
     """Return regex matches in a string"""
     return re.findall(pattern, text)
 
@@ -222,6 +166,11 @@ def contains_match(text : str, pattern : re.Pattern):
     return re.search(pattern, text) is not None
 
 
+
+
+### Pattern Creation Functions
+# TO DO: consider separate module
+###############################################################################
 def combine_patterns_any(*patterns, case_sensitive=True, use_word_boundaries=False):
     """
     Combine an arbitrary number of regex patterns to capture any one of them.
@@ -471,4 +420,141 @@ def make_optional(pattern):
         raise TypeError(f"Input must be re.Pattern or str, not {type(pattern).__name__}")
     optional_pattern_str = fr'(?:{pattern_str})?'
     return re.compile(optional_pattern_str)
+
+
+### Multiprocessing Functions
+# TO DO: consider separate module
+###############################################################################
+def contains_match_multi(texts: Iterable[str], pattern: re.Pattern, n_workers: int = None):
+    """
+    Determines if each string in an iterable contains at least one occurrence of a regex pattern using multiprocessing
+    
+    Parameters
+    ----------
+    texts : Iterable[str]
+        The iterable of texts to search within
+    pattern : re.Pattern
+        The compiled regular expression pattern to search for
+    n_workers : int, optional
+        The number of worker processes to use. Defaults to the number of available CPU cores.
+    
+    Example Usage
+    -------------
+    >>> pattern = re.compile(r'\d+')
+    >>> texts = ["abc 123", "def", "ghi 789"]
+    >>> contains_match_multi(texts, pattern)
+    [True, False, True]
+    """
+    if n_workers is None:
+        n_workers = cpu_count()
+    
+    if len(texts) < n_workers:
+        return [contains_match(text, pattern) for text in texts]
+
+    with Pool(n_workers) as pool:
+        results = pool.starmap(contains_match, [(text, pattern) for text in texts])
+    return results
+
+
+
+
+
+def is_match_multi(texts: Iterable[str], pattern: re.Pattern, n_workers: int = None):
+    """
+    Determines if each string in an iterable in it's entirety matches a regex pattern using multiprocessing
+    
+    Parameters
+    ----------
+    texts : Iterable[str]
+        The iterable of texts to search within
+    pattern : re.Pattern
+        The compiled regular expression pattern to search for
+    n_workers : int, optional
+        The number of worker processes to use. Defaults to the number of available CPU cores.
+    
+    Example Usage
+    -------------
+    >>> pattern = re.compile(r'\d+')
+    >>> texts = ["abc 123", "def", "ghi 789"]
+    >>> is_match_multi(texts, pattern)
+    [True, False, True]
+    """
+    if n_workers is None:
+        n_workers = cpu_count()
+    
+    if len(texts) < n_workers:
+        return [is_match(text, pattern) for text in texts]
+    
+    with Pool(n_workers) as pool:
+        results = pool.starmap(is_match, [(text, pattern) for text in texts])
+    return results
+
+
+def count_matches_multi(texts: Iterable[str], pattern: re.Pattern, n_workers: int = None):
+    """
+    Counts the number of regex matches in each string in an iterable using multiprocessing
+    
+    Parameters
+    ----------
+    texts : Iterable[str]
+        The iterable of texts to search within
+    pattern : re.Pattern
+        The compiled regular expression pattern to search for
+    n_workers : int, optional
+        The number of worker processes to use. Defaults to the number of available CPU cores.
+    
+    Example Usage
+    -------------
+    >>> pattern = re.compile(r'\d+')
+    >>> texts = ["abc 123", "def 456", "ghi 789"]
+    >>> count_matches_multi(texts, pattern)
+    [1, 1, 1]
+    """
+    if n_workers is None:
+        n_workers = cpu_count()
+    
+    if len(texts) < n_workers:
+        return [count_matches(text, pattern) for text in texts]
+    
+    with Pool(n_workers) as pool:
+        results = pool.starmap(count_matches, [(text, pattern) for text in texts])
+    return results
+
+
+def get_matches_multi(texts: Iterable[str], pattern: re.Pattern, n_workers: int = None):
+    """
+    Returns regex matches in each string in an iterable using multiprocessing
+    
+    Parameters
+    ----------
+    texts : Iterable[str]
+        The iterable of texts to search within
+    pattern : re.Pattern
+        The compiled regular expression pattern to search for
+    n_workers : int, optional
+        The number of worker processes to use. Defaults to the number of available CPU cores.
+    
+    Example Usage
+    -------------
+    >>> pattern = re.compile(r'\d+')
+    >>> texts = ["abc 123", "def 456", "ghi 789"]
+    >>> get_matches_multi(texts, pattern)
+    [['123'], ['456'], ['789']]
+    """
+    if n_workers is None:
+        n_workers = cpu_count()
+        
+    if len(texts) < n_workers:
+        return [get_matches(text, pattern) for text in texts]
+    
+    with Pool(n_workers) as pool:
+        results = pool.starmap(get_matches, [(text, pattern) for text in texts])
+    return results
+
+
+
+
+
+
+
 
