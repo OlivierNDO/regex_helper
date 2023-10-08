@@ -344,6 +344,23 @@ def up_to_n_digits(n: int) -> str:
     return f"\\d{{1,{n}}}"
 
 
+def whitespace() -> str:
+    """
+    Generate a regex pattern to match non-optional whitespace.
+    
+    Returns
+    -------
+    str
+        The regex pattern to match one or more whitespace characters.
+        
+    Example Usage
+    -------------
+    >>> non_optional_whitespace()
+    '\\s+'
+    """
+    return r"\s+"
+
+
 def optional_whitespace() -> str:
     """
     Generate a regex pattern to match optional whitespace.
